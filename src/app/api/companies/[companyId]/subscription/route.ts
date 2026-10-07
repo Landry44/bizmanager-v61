@@ -42,7 +42,6 @@ export async function POST(
       },
     });
 
-    // Notifier les admins
     const admins = await db.membership.findMany({
       where: { companyId, role: { in: ["OWNER", "ADMIN"] } },
       select: { userId: true },
@@ -63,4 +62,4 @@ export async function POST(
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Erreur" }, { status: 400 });
   }
-} Correction subscription
+} Fix subscription
