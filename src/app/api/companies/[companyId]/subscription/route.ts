@@ -25,7 +25,7 @@ export async function POST(
     const limits = PLAN_LIMITS[plan];
 
     const existing = await db.paymentOrder.findFirst({
-      where: { companyId, plan, status: "PENDING" },
+      where: { companyId, status: "PENDING" },
     });
 
     if (existing) {
