@@ -1,0 +1,21 @@
+import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { db } from '@/src/lib/db';
+import { getCurrentUser, requireMembership } from '@/src/lib/auth';
+import { requirePlanFeature } from '@/src/lib/plan';
+
+const schema=z.object({type:z.enum(['QUOTE','INVOICE','DELIVERY_NOTE','RECEIPT','CREDIT_NOTE']),customerId:z.string().optional(),saleId:z.string().optional(),subtotal:z.number().int().nonnegative(),discount:z.number().int().nonnegative().default(0),tax:z.number().int().nonnegative().default(0),total:z.number().int().nonnegative(),paid:z.number().int().nonnegative().default(0),notes:z.string().optional(),dueAt:z.string().optional(),items:z.array(z.object({productId:z.string().optional(),description:z.string(),quantity:z.number().int().positive(),unitPrice:z.number().int().nonnegative(),total:z.number().int().nonnegative()})).default([])});
+async function auth(companyId:string, roles?:any[]){const u=await getCurrentUser(); if(!u)return null; await requireMembership(companyId,roles); return u;}
+function prefix(t:string){return ({QUOTE:'DEV',INVOICE:'FAC',DELIVERY_NOTE:'BL',RECEIPT:'REC',CREDIT_NOTE:'AVO'} as any)[t]}
+
+export async function GET(req:Request,{params}:{params:Promise<{companyId:string}>}){
+ const {companyId}=await params; const u=await auth(companyId); if(!u)return NextResponse.json({error:'Unauthorized'},{status:401});
+ try{const sub=await requirePlanFeature(companyId,'BASIC'); const docs=await db.document.findMany({where:{companyId,...(sub.plan==='ENTERPRISE'?{}:{type:'RECEIPT'})},include:{customer:true,items:true},orderBy:{createdAt:'desc'}});return NextResponse.json(docs)}catch(e:any){return NextResponse.json({error:e.message,code:e.code},{status:e.status||403})}
+}
+export async function POST(req:Request,{params}:{params:Promise<{companyId:string}>}){
+ const {companyId}=await params; const u=await auth(companyId,['OWNER','ADMIN','MANAGER','CASHIER']); if(!u)return NextResponse.json({error:'Unauthorized'},{status:401});
+ const raw=await req.json(); try { await requirePlanFeature(companyId,raw.type==='RECEIPT'?'BASIC':'ADVANCED_DOCUMENTS'); } catch(e:any) { return NextResponse.json({error:e.message,code:e.code},{status:e.status||403}); }
+ const data=schema.parse(raw); const count=await db.document.count({where:{companyId,type:data.type}}); const number=`${prefix(data.type)}-${new Date().getFullYear()}-${String(count+1).padStart(5,'0')}`;
+ const doc=await db.document.create({data:{companyId,number,type:data.type,status:'ISSUED',customerId:data.customerId||null,saleId:data.saleId||null,subtotal:data.subtotal,discount:data.discount,tax:data.tax,total:data.total,paid:data.paid,notes:data.notes,dueAt:data.dueAt?new Date(data.dueAt):null,issuedAt:new Date(),items:{create:data.items}}});
+ await db.auditLog.create({data:{action:'CREATE',entity:'Document',entityId:doc.id,companyId,actorId:u.id,metadata:{number,type:data.type}}}); return NextResponse.json(doc,{status:201});
+}

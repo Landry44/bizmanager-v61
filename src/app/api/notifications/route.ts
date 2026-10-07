@@ -1,0 +1,5 @@
+import {NextResponse} from "next/server";
+import {getCurrentUser} from "@/src/lib/auth";
+import {db} from "@/src/lib/db";
+export async function GET(){try{const user=await getCurrentUser();if(!user)return NextResponse.json({error:"UNAUTHENTICATED"},{status:401});const items=await db.notification.findMany({where:{userId:user.id},orderBy:{createdAt:"desc"},take:30});return NextResponse.json({notifications:items,unread:items.filter(n=>!n.readAt).length});}catch(e:any){return NextResponse.json({error:e?.message||"Erreur"},{status:500});}}
+export async function PATCH(request:Request){try{const user=await getCurrentUser();if(!user)return NextResponse.json({error:"UNAUTHENTICATED"},{status:401});const body=await request.json().catch(()=>({}));if(body.all){await db.notification.updateMany({where:{userId:user.id,readAt:null},data:{readAt:new Date()}});}else if(body.id){await db.notification.updateMany({where:{id:String(body.id),userId:user.id},data:{readAt:new Date()}});}return NextResponse.json({ok:true});}catch(e:any){return NextResponse.json({error:e?.message||"Erreur"},{status:500});}}
